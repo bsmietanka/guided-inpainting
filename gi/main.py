@@ -380,10 +380,10 @@ class ImageLogger(Callback):
         self.rescale = rescale
         self.batch_freq = batch_frequency
         self.max_images = max_images
-        self.logger_log_images = {
-            pl.loggers.WandbLogger: self._wandb,
-            pl.loggers.TestTubeLogger: self._testtube,
-        }
+        # self.logger_log_images = {
+        #     pl.loggers.WandbLogger: self._wandb,
+        #     pl.loggers.TestTubeLogger: self._testtube,
+        # }
         self.log_steps = [2 ** n for n in range(int(np.log2(self.batch_freq)) + 1)]
         if not increase_log_steps:
             self.log_steps = [self.batch_freq]
@@ -393,27 +393,27 @@ class ImageLogger(Callback):
         self.log_images_kwargs = log_images_kwargs if log_images_kwargs else {}
         self.log_first_idx = log_first_idx
 
-    @rank_zero_only
-    def _wandb(self, pl_module, images, batch_idx, split):
-        raise ValueError("No way wandb")
-        grids = dict()
-        for k in images:
-            grid = torchvision.utils.make_grid(images[k])
-            grids[f"{split}/{k}"] = wandb.Image(grid)
-        pl_module.logger.experiment.log(grids)
+    # @rank_zero_only
+    # def _wandb(self, pl_module, images, batch_idx, split):
+    #     raise ValueError("No way wandb")
+    #     grids = dict()
+    #     for k in images:
+    #         grid = torchvision.utils.make_grid(images[k])
+    #         grids[f"{split}/{k}"] = wandb.Image(grid)
+    #     pl_module.logger.experiment.log(grids)
 
-    @rank_zero_only
-    def _testtube(self, pl_module, images, batch_idx, split):
-        for k in images:
-            grid = torchvision.utils.make_grid(images[k])
-            grid = (grid+1.0)/2.0 # -1,1 -> 0,1; c,h,w
+    # @rank_zero_only
+    # def _testtube(self, pl_module, images, batch_idx, split):
+    #     for k in images:
+    #         grid = torchvision.utils.make_grid(images[k])
+    #         grid = (grid+1.0)/2.0 # -1,1 -> 0,1; c,h,w
 
-            tag = f"{split}/{k}"
-            pl_module.logger.experiment.add_image(
-                tag, grid,
-                global_step=pl_module.global_step)
+    #         tag = f"{split}/{k}"
+    #         pl_module.logger.experiment.add_image(
+    #             tag, grid,
+    #             global_step=pl_module.global_step)
 
-    @rank_zero_only
+    # @rank_zero_only
     def log_local(self, save_dir, split, images,
                   global_step, current_epoch, batch_idx):
         root = os.path.join(save_dir, "images", split)
@@ -466,14 +466,14 @@ class ImageLogger(Callback):
                 callable(pl_module.log_images) and
                 self.max_images > 0 and
                 (self.log_first_idx or check_idx>0)):
-            logger = type(pl_module.logger)
 
-            is_train = pl_module.training
-            if is_train:
-                pl_module.eval()
+        #     is_train = pl_module.training
+        #     if is_train:
+        #         pl_module.eval()
 
-            with torch.no_grad():
-                images = pl_module.log_images(batch, split=split,**self.log_images_kwargs)
+            images = dict()
+            for k in ['image', 'mask', 'srcs', 'srcs_masks']:
+                images[k] = batch[k]*2.0-1.0
 
             for k in images:
                 N = min(images[k].shape[0], self.max_images)
@@ -486,14 +486,14 @@ class ImageLogger(Callback):
             self.log_local(pl_module.logger.save_dir, split, images,
                            pl_module.global_step, pl_module.current_epoch, batch_idx)
 
-            logger_log_images = self.logger_log_images.get(logger, lambda *args, **kwargs: None)
-            logger_images = dict((k, images[k]) for k in images
-                                 if hasattr(images[k], "shape") and
-                                 len(images[k].shape)==4)
-            logger_log_images(pl_module, logger_images, pl_module.global_step, split)
+        #     logger_log_images = self.logger_log_images.get(logger, lambda *args, **kwargs: None)
+        #     logger_images = dict((k, images[k]) for k in images
+        #                          if hasattr(images[k], "shape") and
+        #                          len(images[k].shape)==4)
+        #     logger_log_images(pl_module, logger_images, pl_module.global_step, split)
 
-            if is_train:
-                pl_module.train()
+        #     if is_train:
+        #         pl_module.train()
 
     def check_frequency(self, check_idx):
         if (check_idx % self.batch_freq) == 0 or (check_idx in self.log_steps):
@@ -509,12 +509,12 @@ class ImageLogger(Callback):
         if not self.disabled:
             self.log_img(pl_module, batch, batch_idx, split="train")
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         if not self.disabled:
             self.log_img(pl_module, batch, batch_idx, split="val")
-        if hasattr(pl_module, 'calibrate_grad_norm'):
-            if (pl_module.calibrate_grad_norm and batch_idx % 25 == 0) and batch_idx > 0:
-                self.log_gradients(trainer,pl_module,batch_idx=batch_idx)
+        # if hasattr(pl_module, 'calibrate_grad_norm'):
+        #     if (pl_module.calibrate_grad_norm and batch_idx % 25 == 0) and batch_idx > 0:
+        #         self.log_gradients(trainer,pl_module,batch_idx=batch_idx)
 
 
     @rank_zero_only
@@ -604,15 +604,16 @@ class ImageLogger(Callback):
         df.to_csv(os.path.join(os.path.join(savepath,f'grad_norms-raw_data-gs-{step:06}_e-{epoch:06}-VAL_{postfix}.csv')))
 
     def on_validation_end(self, trainer, pl_module):
-        if hasattr(pl_module, 'log_grads'):
-            if (pl_module.log_grads or pl_module.calibrate_grad_norm) and pl_module.global_step > 0:
-                self.log_gradients(trainer,pl_module,is_end_epoch=True)
-            if hasattr(pl_module, 'grad_norms_log'):
-                    pl_module.grad_norms_log['norm'] = [[] for _ in pl_module.grad_norms_log['norm']]
+        pass
+        # if hasattr(pl_module, 'log_grads'):
+        #     if (pl_module.log_grads or pl_module.calibrate_grad_norm) and pl_module.global_step > 0:
+        #         self.log_gradients(trainer,pl_module,is_end_epoch=True)
+        #     if hasattr(pl_module, 'grad_norms_log'):
+        #             pl_module.grad_norms_log['norm'] = [[] for _ in pl_module.grad_norms_log['norm']]
 
-        # classifier support
-        if hasattr(pl_module, 'noisy_acc'):
-            self.log_noisy_accuracies(trainer,pl_module)
+        # # classifier support
+        # if hasattr(pl_module, 'noisy_acc'):
+        #     self.log_noisy_accuracies(trainer,pl_module)
 
 
 class FIDelity(Callback):
@@ -1014,7 +1015,7 @@ if __name__ == "__main__":
         # merge trainer cli with config
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
         # default to ddp
-        trainer_config["accelerator"] = "ddp"
+        trainer_config["accelerator"] = "cuda"
         for k in nondefault_trainer_args(opt):
             trainer_config[k] = getattr(opt, k)
         if not "gpus" in trainer_config:
@@ -1059,7 +1060,7 @@ if __name__ == "__main__":
         default_logger_cfg = default_logger_cfgs["testtube"]
         logger_cfg = lightning_config.get("logger") or OmegaConf.create()
         logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
-        trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
+        # trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
 
         if opt.xtraspeed:
             assert (int(pl.__version__.split(".")[0]) >= 1) and (int(pl.__version__.split(".")[1]) > 0), "need lightning >=1.1 for deepspeed usage"
@@ -1108,8 +1109,8 @@ if __name__ == "__main__":
             "image_logger": {
                 "target": "gi.main.ImageLogger",
                 "params": {
-                    "batch_frequency": 750,
-                    "max_images": 4,
+                    "batch_frequency": 1,
+                    "max_images": 1000,
                     "clamp": True
                 }
             },
@@ -1150,7 +1151,7 @@ if __name__ == "__main__":
         elif 'ignore_keys_callback' in callbacks_cfg:
             del callbacks_cfg['ignore_keys_callback']
 
-        trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
+        # trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
 
         trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
         trainer.logdir = logdir  ###

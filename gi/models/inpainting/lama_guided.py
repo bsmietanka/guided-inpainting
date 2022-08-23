@@ -377,6 +377,8 @@ class BaseInpaintingTrainingModule(ptl.LightningModule):
                             k.startswith("val_evaluator")) for output in outputs]
             outputs = self.all_gather(outputs)
             def reshapethem(x):
+                if x.ndim == 1:
+                    return x.reshape(-1, 1)
                 xshape = x.shape
                 outshape = (xshape[0]*xshape[1],*xshape[2:])
                 return x.reshape(outshape)
@@ -426,7 +428,7 @@ class BaseInpaintingTrainingModule(ptl.LightningModule):
             eval_batch = dict((k, batch[k]) for k in log_keys)
 
             # log the first batches explicitly to make sure things are ok
-            if batch_idx<5 and self.global_rank==0:
+            if batch_idx<1000 and self.global_rank==0:
                 root = os.path.join(self.logdir, "images",
                                     "inpaint_eval_{}".format(val_key))
                 for k in eval_batch:
@@ -582,6 +584,8 @@ class DefaultInpaintingTrainingModule(BaseInpaintingTrainingModule):
             batch["attentions"] = out[1]
         else:
             batch['predicted_image'] = out
+        h, w = mask.shape[-2:]
+        batch["predicted_image"] = batch["predicted_image"][..., :h,:w]
         batch['inpainted'] = mask * batch['predicted_image'] + (1 - mask) * batch['image']
 
         if self.fake_fakes_proba > 1e-3:

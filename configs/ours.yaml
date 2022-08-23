@@ -94,7 +94,7 @@ model:
         add_out_act: sigmoid
         resnet_conv_kwargs:
           ratio_gin: 0.75
-          ratio_gout: ${model.params.config.generator.resnet_conv_kwargs.ratio_gin}
+          ratio_gout: 0.75
           enable_lfu: false
       discriminator:
         kind: pix2pixhd_nlayer
